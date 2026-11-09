@@ -1,6 +1,6 @@
 """
 Teste de smoke do flag-service. O app.py conecta no Postgres logo no
-import (SimpleConnectionPool), então mockamos a conexão antes de importar
+import (ThreadedConnectionPool), então mockamos a conexão antes de importar
 para o teste rodar isolado, sem precisar de um Postgres real no CI.
 """
 import os
@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
 os.environ.setdefault("AUTH_SERVICE_URL", "http://localhost:8001")
 
-with patch("psycopg2.pool.SimpleConnectionPool", return_value=MagicMock()):
+with patch("psycopg2.pool.ThreadedConnectionPool", return_value=MagicMock()):
     import app as flag_app
 
 

@@ -10,9 +10,16 @@ from dotenv import load_dotenv
 from google.cloud import pubsub_v1
 from google.cloud import firestore
 from google.api_core.exceptions import GoogleAPICallError
+from opentelemetry import trace, propagate
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
+
+# O provider é configurado pelo `opentelemetry-instrument` (Dockerfile); aqui
+# só criamos os spans do consumo do Pub/Sub, que não tem auto-instrumentação
+# para o modo pull síncrono usado pelo worker.
+tracer = trace.get_tracer("analytics-service")
 
 load_dotenv()
 
@@ -35,33 +42,67 @@ except Exception as e:
 
 
 def process_message(received_message):
-    message_id = received_message.message.message_id
-    try:
-        log.info(f"Processando mensagem ID: {message_id}")
-        body = json.loads(received_message.message.data.decode("utf-8"))
+    message = received_message.message
+    message_id = message.message_id
 
-        event_id = str(uuid.uuid4())
+    # Extrai o traceparent que o evaluation-service injetou nos atributos da
+    # mensagem: o span CONSUMER vira filho do span PRODUCER, e o trace
+    # distribuído continua do evaluation-service até aqui.
+    parent_ctx = propagate.extract(dict(message.attributes))
 
-        item = {
-            "event_id": event_id,
-            "user_id": body["user_id"],
-            "flag_name": body["flag_name"],
-            "result": body["result"],
-            "timestamp": body["timestamp"],
-        }
+    with tracer.start_as_current_span(
+        f"{PUBSUB_SUBSCRIPTION_ID} process",
+        context=parent_ctx,
+        kind=SpanKind.CONSUMER,
+        attributes={
+            "messaging.system": "gcp_pubsub",
+            "messaging.destination.subscription.name": PUBSUB_SUBSCRIPTION_ID,
+            "messaging.operation.type": "process",
+            "messaging.message.id": message_id,
+        },
+    ) as span:
+        try:
+            log.info(f"Processando mensagem ID: {message_id}")
+            body = json.loads(message.data.decode("utf-8"))
+            span.set_attribute("feature_flag.key", body.get("flag_name", ""))
 
-        firestore_client.collection(FIRESTORE_COLLECTION).document(event_id).set(item)
+            event_id = str(uuid.uuid4())
 
-        log.info(f"Evento {event_id} (Flag: {body['flag_name']}) salvo no Firestore.")
+            item = {
+                "event_id": event_id,
+                "user_id": body["user_id"],
+                "flag_name": body["flag_name"],
+                "result": body["result"],
+                "timestamp": body["timestamp"],
+            }
 
-        subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [received_message.ack_id]})
+            with tracer.start_as_current_span(
+                f"firestore set {FIRESTORE_COLLECTION}",
+                kind=SpanKind.CLIENT,
+                attributes={
+                    "db.system.name": "firestore",
+                    "db.collection.name": FIRESTORE_COLLECTION,
+                    "db.operation.name": "set",
+                },
+            ):
+                firestore_client.collection(FIRESTORE_COLLECTION).document(event_id).set(item)
 
-    except json.JSONDecodeError:
-        log.error(f"Erro ao decodificar JSON da mensagem ID: {message_id}")
-    except GoogleAPICallError as e:
-        log.error(f"Erro do GCP (Firestore ou Pub/Sub) ao processar {message_id}: {e}")
-    except Exception as e:
-        log.error(f"Erro inesperado ao processar {message_id}: {e}")
+            log.info(f"Evento {event_id} (Flag: {body['flag_name']}) salvo no Firestore.")
+
+            subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [received_message.ack_id]})
+
+        except json.JSONDecodeError as e:
+            span.record_exception(e)
+            span.set_status(Status(StatusCode.ERROR, "JSON inválido"))
+            log.error(f"Erro ao decodificar JSON da mensagem ID: {message_id}")
+        except GoogleAPICallError as e:
+            span.record_exception(e)
+            span.set_status(Status(StatusCode.ERROR, "erro do GCP"))
+            log.error(f"Erro do GCP (Firestore ou Pub/Sub) ao processar {message_id}: {e}")
+        except Exception as e:
+            span.record_exception(e)
+            span.set_status(Status(StatusCode.ERROR, str(e)))
+            log.error(f"Erro inesperado ao processar {message_id}: {e}")
 
 
 def pubsub_worker_loop():

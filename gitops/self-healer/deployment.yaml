@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: self-healer
+  namespace: observability
+  labels:
+    app: self-healer
+spec:
+  # 1 réplica: o cooldown anti-loop fica em memória.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: self-healer
+  template:
+    metadata:
+      labels:
+        app: self-healer
+    spec:
+      serviceAccountName: self-healer
+      containers:
+        - name: self-healer
+          # A tag é reescrita pelo CI (job gitops-update) a cada build.
+          image: us-central1-docker.pkg.dev/fiap-3-508723/self-healer/self-healer:v1.0.0-initial
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: TARGET_NAMESPACE
+              value: togglemaster
+            - name: ALLOWED_DEPLOYMENTS
+              value: "auth-service,flag-service,targeting-service,evaluation-service,analytics-service"
+            # Janela anti-loop: um restart por deployment a cada 5 min.
+            - name: COOLDOWN_SECONDS
+              value: "300"
+            - name: ROLLOUT_TIMEOUT_SECONDS
+              value: "180"
+            - name: DRY_RUN
+              value: "false"
+            - name: SELF_HEALER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alerting-secrets
+                  key: SELF_HEALER_TOKEN
+            - name: DISCORD_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alerting-secrets
+                  key: DISCORD_WEBHOOK_URL
+            # --- OpenTelemetry ---
+            - name: OTEL_SERVICE_NAME
+              value: self-healer
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.instance.id=$(POD_NAME),k8s.pod.name=$(POD_NAME),k8s.namespace.name=observability,k8s.deployment.name=self-healer,deployment.environment.name=production"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.observability.svc.cluster.local:4318"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: OTEL_LOGS_EXPORTER
+              value: "none"
+            - name: OTEL_SEMCONV_STABILITY_OPT_IN
+              value: http
+            - name: OTEL_PYTHON_EXCLUDED_URLS
+              value: health
+            # O pod fala com a API do Kubernetes e com o Discord; esses spans
+            # CLIENT não interessam ao Service Map da aplicação.
+            - name: OTEL_PYTHON_DISABLED_INSTRUMENTATIONS
+              value: requests
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 192Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

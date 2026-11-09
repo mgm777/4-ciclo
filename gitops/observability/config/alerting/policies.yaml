@@ -1,0 +1,10 @@
+# Política de notificação: agrupa por alerta + serviço, então uma tempestade
+# de avaliações vira UM incidente por serviço (e não dezenas de notificações).
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: togglemaster-oncall
+    group_by: ["grafana_folder", "alertname", "job"]
+    group_wait: 10s
+    group_interval: 1m
+    repeat_interval: 1h

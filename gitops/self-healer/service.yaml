@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: self-healer
+  namespace: observability
+  labels:
+    app: self-healer
+spec:
+  type: ClusterIP
+  selector:
+    app: self-healer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

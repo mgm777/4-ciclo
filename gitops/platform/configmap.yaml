@@ -11,3 +11,29 @@ data:
   PUBSUB_TOPIC_ID: "evaluation-events"
   PUBSUB_SUBSCRIPTION_ID: "evaluation-events-sub"
   FIRESTORE_COLLECTION: "ToggleMasterAnalytics"
+---
+# Configuração OpenTelemetry compartilhada pelos 5 microsserviços.
+# Variáveis padrão da especificação OTel: valem igual para o SDK Go e para o
+# `opentelemetry-instrument` do Python, sem nenhum endpoint fixo no código.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: togglemaster-otel
+  namespace: togglemaster
+data:
+  # OTel Collector (DaemonSet, Service com internalTrafficPolicy: Local — cada
+  # pod fala com o Collector do próprio nó).
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_METRICS_EXPORTER: "otlp"
+  # Logs saem pelo stdout e são coletados pelo filelog receiver do Collector
+  # (assim pegamos também logs de qualquer contêiner, não só dos instrumentados).
+  OTEL_LOGS_EXPORTER: "none"
+  OTEL_METRIC_EXPORT_INTERVAL: "15000"
+  OTEL_PROPAGATORS: "tracecontext,baggage"
+  # Python: semconv HTTP estável (http.server.request.duration em segundos,
+  # mesmo nome/labels emitidos pelo otelhttp do Go) e trace_id nos logs.
+  OTEL_SEMCONV_STABILITY_OPT_IN: "http"
+  OTEL_PYTHON_LOG_CORRELATION: "true"
+  OTEL_PYTHON_EXCLUDED_URLS: "health"

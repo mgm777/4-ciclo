@@ -263,7 +263,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.repository" = "assertion.repository"
   }
   # sem esta condição, QUALQUER repo do GitHub poderia tentar assumir a SA
-  attribute_condition = "assertion.repository == \"mgm777/3-CICLO-POS-FIAP\""
+  attribute_condition = "assertion.repository == \"mgm777/4-ciclo\""
   oidc { issuer_uri = "https://token.actions.githubusercontent.com" }
 }
 ```

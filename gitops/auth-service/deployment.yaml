@@ -22,9 +22,24 @@ spec:
           ports:
             - containerPort: 8001
           env:
+            # --- OpenTelemetry: identidade do serviço e atributos de recurso ---
+            - name: OTEL_SERVICE_NAME
+              value: "auth-service"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.instance.id=$(POD_NAME),k8s.pod.name=$(POD_NAME),k8s.namespace.name=togglemaster,k8s.deployment.name=auth-service,deployment.environment.name=production"
+            # Habilita o endpoint /admin/chaos (injeção de falha da demonstração)
+            - name: CHAOS_ENABLED
+              value: "true"
             - name: PORT
               value: "8001"
           envFrom:
+            # Configuração OTLP comum (endpoint do OTel Collector etc.)
+            - configMapRef:
+                name: togglemaster-otel
             - secretRef:
                 name: auth-service-secret
           resources:

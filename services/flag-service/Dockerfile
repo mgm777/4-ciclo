@@ -24,4 +24,7 @@ ENV PATH="/venv/bin:$PATH"
 USER appuser
 EXPOSE 8002
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8002", "--workers", "2", "app:app"]
+# 1 processo com threads (em vez de varios workers): cada processo tem seu
+# proprio MeterProvider com o mesmo resource, e workers forkados mandariam
+# series de metrica identicas ao Prometheus (contadores colidindo).
+CMD ["opentelemetry-instrument", "gunicorn", "--bind", "0.0.0.0:8002", "--workers", "1", "--threads", "4", "app:app"]

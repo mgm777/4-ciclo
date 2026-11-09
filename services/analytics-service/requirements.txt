@@ -4,3 +4,7 @@ gunicorn==20.1.0
 python-dotenv==0.21.0
 google-cloud-pubsub==2.21.1
 google-cloud-firestore==2.16.0
+opentelemetry-distro==0.66b2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+opentelemetry-instrumentation-flask==0.66b2
+opentelemetry-instrumentation-logging==0.66b2

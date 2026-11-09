@@ -1,0 +1,27 @@
+# Configuração do Grafana como código: o dashboard e o alerting viram
+# ConfigMaps que os sidecars do Grafana carregam sozinhos (labels
+# grafana_dashboard=1 e grafana_alert=1).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: grafana-dashboard-togglemaster
+    files:
+      - dashboards/togglemaster-overview.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: ToggleMaster
+  - name: grafana-alerting-togglemaster
+    files:
+      - alerting/rules.yaml
+      - alerting/contact-points.yaml
+      - alerting/policies.yaml
+    options:
+      labels:
+        grafana_alert: "1"
