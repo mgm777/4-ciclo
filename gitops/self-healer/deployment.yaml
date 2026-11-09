@@ -20,7 +20,7 @@ spec:
       containers:
         - name: self-healer
           # A tag é reescrita pelo CI (job gitops-update) a cada build.
-          image: us-central1-docker.pkg.dev/fiap-3-508723/self-healer/self-healer:v1.0.0-initial
+          image: us-central1-docker.pkg.dev/fiap-4-514223/self-healer/self-healer:v1.0.0-initial
           ports:
             - containerPort: 8080
           env:

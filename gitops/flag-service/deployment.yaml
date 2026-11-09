@@ -18,7 +18,7 @@ spec:
       serviceAccountName: flag-service-ksa
       containers:
         - name: flag-service
-          image: us-central1-docker.pkg.dev/fiap-3-508723/flag-service/flag-service:v1.0.0-4a46a1f
+          image: us-central1-docker.pkg.dev/fiap-4-514223/flag-service/flag-service:v1.0.0-4a46a1f
           ports:
             - containerPort: 8002
           env:

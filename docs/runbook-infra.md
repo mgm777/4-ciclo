@@ -7,7 +7,7 @@ resolvido. Serve como referência para reproduzir o ambiente do zero.
 
 | | |
 |---|---|
-| Projeto | `fiap-3-508723` |
+| Projeto | `fiap-4-514223` |
 | Região | `us-central1` |
 | Recursos no state | 85 |
 | Módulos Terraform | 10 |
@@ -52,7 +52,7 @@ distintos, e é o segundo que importa para o IaC.
 ```bash
 gcloud auth login                        # credencial do CLI
 gcloud auth application-default login    # credencial do Terraform (ADC)
-gcloud config set project fiap-3-508723
+gcloud config set project fiap-4-514223
 ```
 
 > **Alternativa quando o ADC falha.**
@@ -71,7 +71,7 @@ gcloud services enable \
   compute container artifactregistry sqladmin redis pubsub \
   firestore secretmanager iam iamcredentials sts \
   cloudresourcemanager servicenetworking storage \
-  --project fiap-3-508723   # sufixo .googleapis.com em cada uma
+  --project fiap-4-514223   # sufixo .googleapis.com em cada uma
 ```
 
 ---
@@ -87,10 +87,10 @@ projeto Terraform **separado**, com state local, cuja única função é criar o
 ```bash
 cd terraform/bootstrap
 terraform init
-terraform plan  -var project_id=fiap-3-508723 -out=tfplan.bin
+terraform plan  -var project_id=fiap-4-514223 -out=tfplan.bin
 terraform apply tfplan.bin
 # google_storage_bucket.tfstate: Creation complete after 3s
-# bucket_name = "fiap-3-508723-tfstate"
+# bucket_name = "fiap-4-514223-tfstate"
 ```
 
 O bucket nasce com **versioning ligado** (dá para voltar a um state anterior se um
@@ -106,7 +106,7 @@ do Terraform. O nome do bucket entra literal.
 # terraform/backend.tf
 terraform {
   backend "gcs" {
-    bucket = "fiap-3-508723-tfstate"
+    bucket = "fiap-4-514223-tfstate"
     prefix = "fase3/togglemaster"
   }
 }
@@ -179,7 +179,7 @@ resource "google_service_account_iam_member" "workload_identity" {
 ```yaml
 # metade 2 — no cluster: a KSA aponta de volta para a GSA
 annotations:
-  iam.gke.io/gcp-service-account: auth-service-gsa@fiap-3-508723.iam.gserviceaccount.com
+  iam.gke.io/gcp-service-account: auth-service-gsa@fiap-4-514223.iam.gserviceaccount.com
 ```
 
 O cluster precisa de `workload_identity_config` e o node pool de
@@ -390,13 +390,13 @@ Requisito de Estado (Fase 3): o terraform.tfstate NAO fica local. O bloco backen
 ```hcl
 terraform {
   backend "gcs" {
-    bucket = "fiap-3-508723-tfstate"
+    bucket = "fiap-4-514223-tfstate"
     prefix = "fase3/togglemaster"
   }
 }
 ```
 
-Bootstrap: cria o bucket GCS que guarda o terraform.tfstate remoto da infraestrutura principal. Este modulo e o unico com state LOCAL — nao da para guardar o state do bucket dentro do proprio bucket. Rode uma vez, depois use o bucket em ../backend.tf. terraform init && terraform apply -var project_id=fiap-3-508723
+Bootstrap: cria o bucket GCS que guarda o terraform.tfstate remoto da infraestrutura principal. Este modulo e o unico com state LOCAL — nao da para guardar o state do bucket dentro do proprio bucket. Rode uma vez, depois use o bucket em ../backend.tf. terraform init && terraform apply -var project_id=fiap-4-514223
 
 `terraform/bootstrap/main.tf`
 
@@ -814,7 +814,7 @@ Cria os Secrets do Kubernetes que os Deployments consomem. Nenhuma credencial ve
 ```bash
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-fiap-3-508723}"
+PROJECT_ID="${PROJECT_ID:-fiap-4-514223}"
 NAMESPACE="${NAMESPACE:-togglemaster}"
 TF_DIR="$(cd "$(dirname "$0")/../terraform" && pwd)"
 
@@ -1148,7 +1148,7 @@ A tag abaixo e reescrita automaticamente pelo job gitops-update do pipeline de C
 `gitops/analytics-service/deployment.yaml` _(repetido em 5 arquivos)_
 
 ```yaml
-      image: us-central1-docker.pkg.dev/fiap-3-508723/analytics-service/analytics-service:v1.0.0-35de366
+      image: us-central1-docker.pkg.dev/fiap-4-514223/analytics-service/analytics-service:v1.0.0-35de366
       ports:
         - containerPort: 8005
       env:

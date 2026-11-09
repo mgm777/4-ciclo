@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-fiap-3-508723}"
+PROJECT_ID="${PROJECT_ID:-fiap-4-514223}"
 NAMESPACE="${NAMESPACE:-togglemaster}"
 TF_DIR="$(cd "$(dirname "$0")/../terraform" && pwd)"
 

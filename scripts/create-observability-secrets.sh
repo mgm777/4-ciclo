@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Cria os Secrets da stack de observabilidade (namespace observability).
-# Nada disso vai para o Git: os valores vêm de variáveis de ambiente.
+# Nada disso vai para o Git. Os valores vêm de variáveis de ambiente ou, de
+# preferência, de um arquivo local FORA do repositório (padrão:
+# ~/.togglemaster-observability.env, com permissão 600):
 #
-#   NEW_RELIC_LICENSE_KEY=...  (New Relic > API Keys > INGEST - LICENSE)
-#   PAGERDUTY_INTEGRATION_KEY=... (PagerDuty > Service > Integrations > Events API v2)
-#   DISCORD_WEBHOOK_URL=...    (Discord > canal > Integrações > Webhooks)
+#   NEW_RELIC_LICENSE_KEY=...      # New Relic > API Keys > INGEST - LICENSE
+#   PAGERDUTY_INTEGRATION_KEY=...  # PagerDuty > Service > Integrations > Events API v2
+#   DISCORD_WEBHOOK_URL=...        # Discord > canal > Integrações > Webhooks
+#
 #   ./scripts/create-observability-secrets.sh
 #
 # Opcionais: GRAFANA_ADMIN_PASSWORD (gerada se ausente) e SELF_HEALER_TOKEN
@@ -12,6 +15,15 @@
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-observability}"
+ENV_FILE="${OBS_ENV_FILE:-$HOME/.togglemaster-observability.env}"
+
+if [ -f "$ENV_FILE" ]; then
+  echo "==> Lendo as chaves de $ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
 
 : "${NEW_RELIC_LICENSE_KEY:?defina NEW_RELIC_LICENSE_KEY (license key de ingestão do New Relic)}"
 : "${PAGERDUTY_INTEGRATION_KEY:?defina PAGERDUTY_INTEGRATION_KEY (Events API v2 do serviço no PagerDuty)}"

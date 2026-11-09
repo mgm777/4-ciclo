@@ -18,7 +18,7 @@ spec:
       serviceAccountName: evaluation-service-ksa
       containers:
         - name: evaluation-service
-          image: us-central1-docker.pkg.dev/fiap-3-508723/evaluation-service/evaluation-service:v1.0.0-6952351
+          image: us-central1-docker.pkg.dev/fiap-4-514223/evaluation-service/evaluation-service:v1.0.0-6952351
           ports:
             - containerPort: 8004
           env:

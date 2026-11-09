@@ -18,7 +18,7 @@ spec:
       serviceAccountName: analytics-service-ksa
       containers:
         - name: analytics-service
-          image: us-central1-docker.pkg.dev/fiap-3-508723/analytics-service/analytics-service:v1.0.0-4a46a1f
+          image: us-central1-docker.pkg.dev/fiap-4-514223/analytics-service/analytics-service:v1.0.0-4a46a1f
           ports:
             - containerPort: 8005
           env:
