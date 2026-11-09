@@ -1,0 +1,26 @@
+name: evaluation-service
+
+on:
+  pull_request:
+    paths:
+      - "services/evaluation-service/**"
+      - ".github/workflows/evaluation-service.yml"
+      - ".github/workflows/reusable-go-ci.yml"
+      - ".golangci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/evaluation-service/**"
+      - ".github/workflows/evaluation-service.yml"
+      - ".github/workflows/reusable-go-ci.yml"
+      - ".golangci.yml"
+  workflow_dispatch:
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-go-ci.yml
+    with:
+      service_name: evaluation-service
+      service_path: services/evaluation-service
+      go_version: "1.25"
+    secrets: inherit

@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flag-service
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/mgm777/3-CICLO-POS-FIAP.git
+    targetRevision: main
+    path: gitops/flag-service
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: togglemaster
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        maxDuration: 3m
+        factor: 2

@@ -1,0 +1,169 @@
+name: Reusable - Go CI (DevSecOps)
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+      service_path:
+        required: true
+        type: string
+      go_version:
+        required: false
+        type: string
+        default: "1.21"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-test:
+    name: Build & Unit Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.service_path }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache-dependency-path: ${{ inputs.service_path }}/go.sum
+      - name: go build
+        run: go build ./...
+      - name: go test
+        run: go test ./... -v
+
+  lint:
+    name: Linter/Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.6.1
+          working-directory: ${{ inputs.service_path }}
+
+  security-scan:
+    name: "Security Scan (SAST & SCA)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: SAST - gosec (bloqueia em HIGH)
+        working-directory: ${{ inputs.service_path }}
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -severity high -confidence high -exclude=G104,G115,G704 ./...
+
+      - name: SAST - gosec (relatorio completo, nao bloqueia)
+        if: always()
+        working-directory: ${{ inputs.service_path }}
+        continue-on-error: true
+        run: gosec ./...
+
+      - name: Instala o Trivy
+        run: |
+          TRIVY_VERSION=0.74.0
+          mkdir -p "$HOME/.trivy-bin"
+          curl -sSfL -o /tmp/trivy.tar.gz \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          tar -xzf /tmp/trivy.tar.gz -C "$HOME/.trivy-bin" trivy
+          echo "$HOME/.trivy-bin" >> "$GITHUB_PATH"
+          "$HOME/.trivy-bin/trivy" --version
+
+      - name: SCA - Trivy filesystem (bloqueia em CRITICAL)
+        run: |
+          trivy fs --scanners vuln --severity CRITICAL --ignore-unfixed \
+            --exit-code 1 --no-progress "${{ inputs.service_path }}"
+
+      - name: SCA - Trivy filesystem (relatorio HIGH)
+        if: always()
+        continue-on-error: true
+        run: |
+          trivy fs --scanners vuln --severity HIGH --ignore-unfixed \
+            --exit-code 0 --no-progress "${{ inputs.service_path }}"
+
+  docker-build-push:
+    name: Docker Build & Push
+    needs: [build-test, lint, security-scan]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Define a tag da imagem
+        id: tag
+        run: echo "image_tag=v1.0.0-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build da imagem
+        working-directory: ${{ inputs.service_path }}
+        run: docker build -t ${{ inputs.service_name }}:${{ steps.tag.outputs.image_tag }} .
+
+      - name: Instala o Trivy
+        run: |
+          TRIVY_VERSION=0.74.0
+          mkdir -p "$HOME/.trivy-bin"
+          curl -sSfL -o /tmp/trivy.tar.gz \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          tar -xzf /tmp/trivy.tar.gz -C "$HOME/.trivy-bin" trivy
+          echo "$HOME/.trivy-bin" >> "$GITHUB_PATH"
+
+      - name: Container Scan - Trivy image (bloqueia em CRITICAL)
+        run: |
+          trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+            "${{ inputs.service_name }}:${{ steps.tag.outputs.image_tag }}"
+
+      - name: Autentica no GCP (OIDC / WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_CI_SERVICE_ACCOUNT }}
+
+      - name: Login no Artifact Registry
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Push para o Artifact Registry
+        run: |
+          IMAGE_URI="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.service_name }}/${{ inputs.service_name }}:${{ steps.tag.outputs.image_tag }}"
+          docker tag ${{ inputs.service_name }}:${{ steps.tag.outputs.image_tag }} "$IMAGE_URI"
+          docker push "$IMAGE_URI"
+          echo "Imagem publicada: $IMAGE_URI"
+
+  gitops-update:
+    name: Atualiza a tag no GitOps
+    needs: docker-build-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reescreve a tag em gitops/${{ inputs.service_name }}/deployment.yaml
+        run: |
+          set -euo pipefail
+          FILE="gitops/${{ inputs.service_name }}/deployment.yaml"
+          NEW_TAG="${{ needs.docker-build-push.outputs.image_tag }}"
+          sed -i -E "s|(image: .*/${{ inputs.service_name }}:).*|\1${NEW_TAG}|" "$FILE"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          git diff --cached --quiet && { echo "Nada mudou"; exit 0; }
+          git commit -m "chore(gitops): ${{ inputs.service_name }} -> ${NEW_TAG}"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push origin main && exit 0
+            sleep 5
+          done
+          exit 1

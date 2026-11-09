@@ -1,0 +1,5 @@
+# Copie para terraform.tfvars (ignorado pelo git).
+project_id        = "fiap-3-508723"
+region            = "us-central1"
+zone              = "us-central1-a"
+github_repository = "mgm777/3-CICLO-POS-FIAP"
