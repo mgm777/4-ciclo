@@ -47,7 +47,8 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.6.1
+          # v2.15+ (compilado com Go 1.27): versoes antigas recusam modulos `go 1.26`
+          version: v2.15.0
           working-directory: ${{ inputs.service_path }}
 
   security-scan:
