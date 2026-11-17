@@ -763,7 +763,9 @@
             },
             "thresholdsStyle": {
               "mode": "dashed+area"
-            }
+            },
+            "axisSoftMin": 0,
+            "axisSoftMax": 0.2
           },
           "thresholds": {
             "mode": "absolute",
