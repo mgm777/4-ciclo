@@ -79,6 +79,14 @@ config:
         - key: k8s.cluster.name
           value: ${env:K8S_CLUSTER_NAME}
           action: upsert
+    # O preset kubernetesAttributes preenche service.namespace com o namespace
+    # do pod, e o Prometheus monta o label job como "namespace/serviço"
+    # (togglemaster/auth-service). A regra de alerta e o self-healer usam
+    # job = nome do Deployment, então só nas métricas o atributo sai.
+    resource/metrics-job:
+      attributes:
+        - key: service.namespace
+          action: delete
     # Logs coletados do stdout não têm service.name: usamos o nome do
     # Deployment (ou do contêiner). É o label service_name no Loki e o que
     # liga o log à entidade APM no New Relic.
@@ -125,7 +133,7 @@ config:
         exporters: [otlphttp/newrelic]
       metrics:
         receivers: [otlp]
-        processors: [memory_limiter, k8sattributes, resource/cluster, batch]
+        processors: [memory_limiter, k8sattributes, resource/cluster, resource/metrics-job, batch]
         exporters: [prometheusremotewrite]
       logs:
         receivers: [otlp, filelog]
