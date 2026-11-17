@@ -127,7 +127,7 @@ reescrevem as tags em `gitops/`).
 
 ```bash
 kubectl -n observability port-forward svc/grafana 3000:80          # Grafana (admin / senha do passo 2)
-kubectl -n argocd        port-forward svc/argocd-server 8080:443   # ArgoCD
+kubectl -n argocd        port-forward svc/argocd-server 8080:80    # ArgoCD
 ```
 
 - Dashboard: *Dashboards → ToggleMaster → ToggleMaster — Saúde do Ecossistema*
