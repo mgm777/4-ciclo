@@ -75,5 +75,5 @@ variable "github_repository" {
 variable "argocd_chart_version" {
   description = "Versao do chart Helm argo-cd (argoproj/argo-helm)."
   type        = string
-  default     = "7.7.11"
+  default     = "10.18.0"
 }
