@@ -59,7 +59,7 @@ spec:
           done
       resources:
         requests: {cpu: 10m, memory: 16Mi}
-        limits: {cpu: 100m, memory: 64Mi}
+        limits: {cpu: 300m, memory: 64Mi}
       securityContext:
         allowPrivilegeEscalation: false
         capabilities: {drop: ["ALL"]}

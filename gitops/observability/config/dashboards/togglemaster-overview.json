@@ -953,7 +953,8 @@
         "viewMode": "list",
         "alertInstanceLabelFilter": "",
         "folder": null,
-        "dashboardAlerts": false
+        "dashboardAlerts": false,
+        "datasource": "grafana"
       }
     },
     {

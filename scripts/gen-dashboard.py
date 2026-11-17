@@ -116,7 +116,8 @@ panels += [
     {"type": "alertlist", "title": "Alertas ativos", "id": nid(), "gridPos": {"h": 8, "w": 8, "x": 16, "y": y},
      "options": {"alertListOptions": {}, "showInstances": True, "groupMode": "default", "maxItems": 20,
                  "sortOrder": 1, "stateFilter": {"firing": True, "pending": True, "normal": False, "error": True},
-                 "viewMode": "list", "alertInstanceLabelFilter": "", "folder": None, "dashboardAlerts": False}},
+                 "viewMode": "list", "alertInstanceLabelFilter": "", "folder": None, "dashboardAlerts": False,
+                 "datasource": "grafana"}},  # só as regras do Grafana (as nossas), sem o Watchdog e afins
 ]
 y += 8
 
