@@ -47,6 +47,9 @@ def ts(title, targets, x, y, w=12, h=8, unit="short", desc="", threshold=None, s
     if threshold is not None:
         steps.append({"color": "red", "value": threshold})
         custom["thresholdsStyle"] = {"mode": "dashed+area"}
+        # Sem isso, com tudo em 0 o Grafana estica o eixo (chegou a 10000%) e a linha some.
+        custom["axisSoftMin"] = 0
+        custom["axisSoftMax"] = threshold * 4
     return {"type": "timeseries", "title": title, "id": nid(), "datasource": PROM, "description": desc,
             "gridPos": {"h": h, "w": w, "x": x, "y": y},
             "targets": [{"refId": chr(65 + i), "datasource": PROM, "expr": e, "legendFormat": l}
