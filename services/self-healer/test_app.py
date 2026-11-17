@@ -69,3 +69,17 @@ def test_dry_run_does_not_touch_cluster(restart):
         r = post(healer.app.test_client(), [alert()])
     assert r.get_json()["results"][0]["action"] == "dry_run"
     restart.assert_not_called()
+
+
+def test_init_counters_creates_zero_series_for_each_allowed_deployment():
+    # Sem a série em 0, o primeiro "healed" já nasce valendo 1 e o increase()
+    # do Prometheus devolve 0: o painel "Self-healing executados" não sobe.
+    calls = []
+
+    class FakeCounter:
+        def add(self, value, attributes):
+            calls.append((value, attributes["deployment"], attributes["result"]))
+
+    healer.init_counters(FakeCounter())
+    assert {d for _, d, _ in calls} == healer.ALLOWED_DEPLOYMENTS
+    assert all(v == 0 and r == "healed" for v, _, r in calls)
