@@ -18,10 +18,19 @@ spec:
       serviceAccountName: analytics-service-ksa
       containers:
         - name: analytics-service
-          image: us-central1-docker.pkg.dev/fiap-3-508723/analytics-service/analytics-service:v1.0.0-4a46a1f
+          image: us-central1-docker.pkg.dev/fiap-4-514223/analytics-service/analytics-service:v1.0.0-4a46a1f
           ports:
             - containerPort: 8005
           env:
+            # --- OpenTelemetry: identidade do serviço e atributos de recurso ---
+            - name: OTEL_SERVICE_NAME
+              value: "analytics-service"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.instance.id=$(POD_NAME),k8s.pod.name=$(POD_NAME),k8s.namespace.name=togglemaster,k8s.deployment.name=analytics-service,deployment.environment.name=production"
             - name: PORT
               value: "8005"
             - name: GCP_PROJECT_ID
@@ -39,6 +48,10 @@ spec:
                 configMapKeyRef:
                   name: togglemaster-config
                   key: FIRESTORE_COLLECTION
+          envFrom:
+            # Configuração OTLP comum (endpoint do OTel Collector etc.)
+            - configMapRef:
+                name: togglemaster-otel
           resources:
             requests:
               cpu: 100m

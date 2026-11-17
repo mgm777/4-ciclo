@@ -1,0 +1,44 @@
+# Um único contact point com três integrações, disparadas juntas:
+#   1. PagerDuty  — abre (e depois resolve) o incidente: acorda o plantonista
+#   2. Discord    — ChatOps: notificação detalhada no canal do time
+#   3. Webhook    — self-healer (Runbook Automation) executa a mitigação
+# Os segredos vêm do Secret alerting-secrets (envFromSecret do Grafana).
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: togglemaster-oncall
+    receivers:
+      - uid: togglemaster-pagerduty
+        type: pagerduty
+        disableResolveMessage: false
+        settings:
+          integrationKey: ${PAGERDUTY_INTEGRATION_KEY}
+          severity: critical
+          class: http-5xx
+          component: '{{ .CommonLabels.job }}'
+          group: togglemaster
+          summary: '[ToggleMaster] {{ .CommonLabels.alertname }} — {{ .CommonLabels.job }}'
+      - uid: togglemaster-discord
+        type: discord
+        disableResolveMessage: false
+        settings:
+          url: ${DISCORD_WEBHOOK_URL}
+          use_discord_username: true
+          title: '{{ if eq .Status "firing" }}🚨 [FIRING]{{ else }}✅ [RESOLVED]{{ end }} {{ .CommonLabels.alertname }} — {{ .CommonLabels.job }}'
+          message: |-
+            {{ range .Alerts }}**Resumo:** {{ .Annotations.summary }}
+            **Severidade:** {{ .Labels.severity }} · **Serviço:** `{{ .Labels.job }}`
+            **Início:** {{ .StartsAt.Format "02/01 15:04:05 MST" }}
+            {{ if eq .Status "firing" }}**Detalhes:** {{ .Annotations.description }}
+            🔧 **Self-healing:** rollout restart automático solicitado ao self-healer.
+            📟 **PagerDuty:** incidente aberto para o plantão.{{ end }}
+            📖 Runbook: {{ .Annotations.runbook_url }}
+            {{ end }}
+      - uid: togglemaster-self-healer
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: http://self-healer.observability.svc.cluster.local:8080/hooks/grafana
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: ${SELF_HEALER_TOKEN}

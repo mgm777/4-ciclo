@@ -1,0 +1,24 @@
+name: self-healer
+
+on:
+  pull_request:
+    paths:
+      - "services/self-healer/**"
+      - ".github/workflows/self-healer.yml"
+      - ".github/workflows/reusable-python-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/self-healer/**"
+      - ".github/workflows/self-healer.yml"
+      - ".github/workflows/reusable-python-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-python-ci.yml
+    with:
+      service_name: self-healer
+      service_path: services/self-healer
+      python_version: "3.12"
+    secrets: inherit

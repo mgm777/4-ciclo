@@ -4,7 +4,7 @@ import psycopg2
 import requests
 import json
 from psycopg2.extras import RealDictCursor, Json
-from psycopg2.pool import SimpleConnectionPool
+from psycopg2.pool import ThreadedConnectionPool
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from functools import wraps
@@ -29,7 +29,8 @@ if not DATABASE_URL or not AUTH_SERVICE_URL:
 
 # --- Pool de Conexão com o Banco ---
 try:
-    pool = SimpleConnectionPool(1, 5, dsn=DATABASE_URL)
+    # Threaded: o gunicorn roda 1 worker com várias threads (ver Dockerfile)
+    pool = ThreadedConnectionPool(1, 5, dsn=DATABASE_URL)
     log.info("Pool de conexões com o PostgreSQL (targeting) inicializado.")
 except psycopg2.OperationalError as e:
     log.critical(f"Erro fatal ao conectar ao PostgreSQL: {e}")

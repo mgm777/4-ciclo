@@ -22,5 +22,5 @@ jobs:
     with:
       service_name: auth-service
       service_path: services/auth-service
-      go_version: "1.25"
+      go_version: "1.26"
     secrets: inherit

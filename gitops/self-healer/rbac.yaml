@@ -1,0 +1,31 @@
+# Menor privilégio: o self-healer só consegue ler e "patchar" Deployments do
+# namespace togglemaster — o suficiente para um `kubectl rollout restart`.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: self-healer
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: self-healer-rollout-restart
+  namespace: togglemaster
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: self-healer-rollout-restart
+  namespace: togglemaster
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: self-healer-rollout-restart
+subjects:
+  - kind: ServiceAccount
+    name: self-healer
+    namespace: observability

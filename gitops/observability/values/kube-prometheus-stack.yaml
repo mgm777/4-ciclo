@@ -1,0 +1,137 @@
+# kube-prometheus-stack: Prometheus + Grafana + node-exporter + kube-state-metrics.
+#
+# - Métricas de infraestrutura (nós, pods, contêineres) vêm do scrape padrão
+#   do Prometheus (kubelet/cAdvisor, node-exporter, kube-state-metrics).
+# - Métricas das aplicações chegam pelo OTel Collector via remote write
+#   (enableRemoteWriteReceiver) — os microsserviços não são "scrapeados".
+# - Alertas: Grafana Unified Alerting (regras, contact points e política
+#   provisionados como código em gitops/observability/config). O Alertmanager
+#   do chart fica desligado para não haver dois roteadores de alerta.
+fullnameOverride: kps
+
+crds:
+  enabled: true
+
+alertmanager:
+  enabled: false
+
+# Componentes do control plane são gerenciados pelo GKE e não são acessíveis.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+# GKE usa kube-dns (não CoreDNS)
+coreDns:
+  enabled: false
+kubeDns:
+  enabled: true
+
+defaultRules:
+  create: true
+  rules:
+    alertmanager: false
+    etcd: false
+    kubeControllerManager: false
+    kubeScheduler: false
+    kubeProxy: false
+
+prometheus:
+  prometheusSpec:
+    enableRemoteWriteReceiver: true
+    retention: 7d
+    retentionSize: 8GB
+    # Descobre ServiceMonitors/PodMonitors de qualquer release
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 768Mi
+      limits:
+        memory: 2Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+
+grafana:
+  fullnameOverride: grafana
+  defaultDashboardsTimezone: browser
+
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  # PAGERDUTY_INTEGRATION_KEY, DISCORD_WEBHOOK_URL e SELF_HEALER_TOKEN —
+  # interpolados nos arquivos de provisionamento de alerting (${VAR}).
+  envFromSecret: alerting-secrets
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+
+  grafana.ini:
+    unified_alerting:
+      enabled: true
+    # Os links dos alertas (Discord/PagerDuty) apontam para cá. Para a demo o
+    # acesso é por port-forward (kubectl -n observability port-forward svc/grafana 3000:80).
+    server:
+      root_url: http://localhost:3000
+
+  # Datasource Prometheus (uid "prometheus") é criado pelo próprio chart.
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.observability.svc.cluster.local:3100
+      jsonData:
+        maxLines: 1000
+
+  sidecar:
+    datasources:
+      alertmanager:
+        enabled: false
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    # Provisiona regras, contact points e política de notificação a partir de
+    # ConfigMaps com o label grafana_alert=1.
+    alerts:
+      enabled: true
+      label: grafana_alert
+      labelValue: "1"

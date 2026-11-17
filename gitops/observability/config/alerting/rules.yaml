@@ -1,0 +1,66 @@
+# Grafana Unified Alerting — regra provisionada como código.
+#
+# ATENÇÃO: o Grafana interpola variáveis de ambiente (cifrão + chaves) nos arquivos de
+# provisionamento. Por isso as expressões e templates abaixo não usam o
+# caractere cifrão (usamos .Labels e .Values no lugar das variáveis com cifrão).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: togglemaster-slo
+    folder: ToggleMaster
+    interval: 30s
+    rules:
+      - uid: http-5xx-error-rate
+        title: HTTP5xxErrorRateHigh
+        condition: C
+        for: 1m
+        # Sem tráfego não há o que avaliar: não abre incidente por "no data".
+        noDataState: OK
+        execErrState: Error
+        data:
+          # Taxa de erro 5xx por serviço (label job = service.name do OTel).
+          # Só avalia serviços com tráfego mínimo (> 0,2 req/s) para não
+          # disparar por 1 erro isolado em 3 requisições (anti alert fatigue).
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                (
+                  sum by (job) (rate(http_server_request_duration_seconds_count{job=~"auth-service|flag-service|targeting-service|evaluation-service|analytics-service", http_response_status_code=~"5.."}[1m]))
+                  /
+                  sum by (job) (rate(http_server_request_duration_seconds_count{job=~"auth-service|flag-service|targeting-service|evaluation-service|analytics-service"}[1m]))
+                )
+                and on (job)
+                (
+                  sum by (job) (rate(http_server_request_duration_seconds_count{job=~"auth-service|flag-service|targeting-service|evaluation-service|analytics-service"}[1m])) > 0.2
+                )
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.05]
+        labels:
+          severity: critical
+          team: togglemaster
+          remediation: rollout-restart
+        annotations:
+          summary: 'Taxa de erro HTTP 5xx do {{ index .Labels "job" }} em {{ humanizePercentage (index .Values "A").Value }} (limite: 5%)'
+          description: >-
+            O serviço {{ index .Labels "job" }} está respondendo 5xx acima do SLO há mais de 1 minuto.
+            As probes de /health podem continuar OK (falha silenciosa). Ação automática:
+            o self-healer executa kubectl rollout restart deployment/{{ index .Labels "job" }}.
+            Se o alerta não resolver em 5 minutos, investigue o trace no New Relic e os logs no Loki.
+          runbook_url: https://github.com/mgm777/4-ciclo/blob/main/docs/runbook-incidente.md
+          __dashboardUid__: togglemaster-overview
+          __panelId__: "13"

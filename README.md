@@ -1,161 +1,174 @@
-# Tech Challenge Fase 3 — ToggleMaster no Google Cloud
+# Tech Challenge Fase 4 — ToggleMaster: Observabilidade Total e Resposta Ativa
 
-Automação completa da infraestrutura e do ciclo de vida dos 5 microsserviços do
-ToggleMaster (`auth`, `flag`, `targeting`, `evaluation`, `analytics`) usando
-**IaC (Terraform)**, **CI/CD com DevSecOps (GitHub Actions)** e **GitOps
-(ArgoCD)** em um cluster **GKE**.
+Continuação do projeto das Fases 1–3: os 5 microsserviços do ToggleMaster
+(`auth`, `flag`, `targeting`, `evaluation`, `analytics`) rodando no **GKE**,
+com infraestrutura em **Terraform**, CI/CD com **DevSecOps** (GitHub Actions)
+e entrega via **GitOps** (ArgoCD). Esta fase adiciona:
 
-| Enunciado (AWS) | Implementado (GCP) |
+| Requisito | Implementação |
 |---|---|
-| VPC, Subnets, IGW, Route Tables | VPC customizada, Subnet com ranges secundários, Cloud Router + Cloud NAT |
-| Cluster EKS + Node Groups | **GKE** zonal + Node Pool gerenciado com autoscaling |
-| 3 instâncias RDS PostgreSQL | **3 instâncias Cloud SQL** PostgreSQL 15 (uma por serviço, IP privado) |
-| 1 cluster ElastiCache (Redis) | **Memorystore for Redis** 7.0 (tier BASIC) |
-| 1 tabela DynamoDB `ToggleMasterAnalytics` | **Firestore** (Native) — coleção `ToggleMasterAnalytics` |
-| 1 fila SQS | **Pub/Sub** — tópico `evaluation-events` + subscription e DLQ |
-| 5 repositórios ECR | **5 repositórios no Artifact Registry** |
-| Backend remoto em bucket S3 | **Backend remoto em bucket GCS** (versionado) |
+| Métricas de infraestrutura | **Prometheus** (kube-prometheus-stack: kubelet/cAdvisor, node-exporter, kube-state-metrics) |
+| Logs centralizados | **Loki** (SingleBinary), alimentado pelo OTel Collector com os logs de **todos** os contêineres |
+| Visualização | **Grafana** com o dashboard customizado *ToggleMaster — Saúde do Ecossistema* (provisionado como código) |
+| Padronização da telemetria | **OpenTelemetry Collector** (DaemonSet) recebendo OTLP dos serviços e roteando métricas → Prometheus, logs → Loki, traces → New Relic |
+| Instrumentação | SDK OTel no código Go (`otelhttp`, `otelsql`, spans de Redis/Pub/Sub) e auto-instrumentação Python (`opentelemetry-instrument`) |
+| APM, Distributed Tracing e Service Map | **New Relic** (OTLP nativo), com contexto propagado inclusive através do **Pub/Sub** |
+| Alerta inteligente | **Grafana Alerting**: taxa de 5xx > 5% por serviço, com tráfego mínimo e `for: 1m` |
+| Gestão de incidentes | **PagerDuty** (Events API v2) — abre e resolve o incidente sozinho |
+| ChatOps | **Discord** — notificação detalhada do alerta e do resultado do self-healing |
+| Self-Healing | **self-healer** (Runbook Automation in-cluster) — executa `kubectl rollout restart` no serviço afetado |
 
-## Arquitetura do repositório
+Tudo é código e é sincronizado pelo ArgoCD: os Helm charts, os values, o
+dashboard e as regras/contact points/políticas de alerta.
+
+## Arquitetura
 
 ```
-services/           código dos 5 microsserviços (Go e Python)
-terraform/          toda a infraestrutura como código, em módulos
-  bootstrap/        cria o bucket GCS do state remoto (rodar uma vez)
-  modules/          networking, gke, cloudsql, memorystore, messaging,
-                    firestore, artifact-registry, iam, cicd, project-services
-gitops/             manifestos Kubernetes que o ArgoCD sincroniza
-  argocd-apps/      as Applications do ArgoCD (uma por serviço + platform)
-.github/workflows/  pipelines de CI com os estágios de DevSecOps
-scripts/            bootstrap dos Secrets a partir do Secret Manager
+                        ┌────────────────────────── GKE ───────────────────────────┐
+  usuário ─► evaluation ─┬─► flag ──────┐                                           │
+             -service    ├─► targeting ─┴─► auth ─► Cloud SQL                       │
+               │  │      └─► Redis                                                 │
+               │  └─► Pub/Sub ─► analytics ─► Firestore     (traceparent na msg)   │
+               │                                                                   │
+               │ OTLP/HTTP (traces + métricas)          stdout de todos os pods    │
+               ▼                                                 ▼                 │
+        ┌──────────────────── OTel Collector (DaemonSet) ─────────────────────┐    │
+        │ receivers: otlp, filelog │ processors: memory_limiter, k8sattributes│    │
+        │                          │ transform, filter, batch                 │    │
+        └───┬──────────────────────────┬──────────────────────────┬──────────┘    │
+            │ remote write             │ OTLP                     │ OTLP           │
+            ▼                          ▼                          │                │
+       Prometheus ◄── scrape infra   Loki                         │                │
+            └──────────┬───────────────┘                          │                │
+                       ▼                                          │                │
+                    Grafana ── alerta 5xx > 5% ──┬─► PagerDuty    │                │
+                                                 ├─► Discord      │                │
+                                                 └─► self-healer ─┼─► rollout      │
+                                                                  │    restart     │
+└─────────────────────────────────────────────────────────────────┼────────────────┘
+                                                                  ▼
+                                                     New Relic (APM, traces,
+                                                     Service Map, logs in context)
 ```
 
-- **auth-service** (Go, `:8001`) — Cloud SQL próprio. Emite as API keys.
-- **flag-service** (Python/Flask, `:8002`) — Cloud SQL próprio.
-- **targeting-service** (Python/Flask, `:8003`) — Cloud SQL próprio.
-- **evaluation-service** (Go, `:8004`) — Memorystore + publica no Pub/Sub.
-- **analytics-service** (Python/Flask, `:8005`) — consome o Pub/Sub e grava no Firestore.
+Detalhes e justificativas: [docs/arquitetura-observabilidade.md](docs/arquitetura-observabilidade.md).
+Runbook do incidente: [docs/runbook-incidente.md](docs/runbook-incidente.md).
+Roteiro do vídeo: [docs/roteiro-video-fase4.md](docs/roteiro-video-fase4.md).
 
-## Como as três dores do enunciado foram resolvidas
+## Estrutura do repositório
 
-| Dor | Resposta |
-|---|---|
-| "Desenvolvedores rodando `kubectl apply` da máquina local" | O pipeline **não tem credencial de Kubernetes**. Ele só commita a nova tag em `gitops/`; quem aplica no cluster é o **ArgoCD**, com `selfHeal: true` (alteração manual no cluster é revertida sozinha). |
-| "Credenciais do banco em arquivos de texto sem segurança" | As senhas são geradas por `random_password`, nunca digitadas nem commitadas, e ficam no **Secret Manager**. Os pods acessam o GCP por **Workload Identity** — nenhuma chave JSON dentro de container. O CI autentica por **Workload Identity Federation (OIDC)** — nenhuma chave de service account como secret do GitHub. |
-| "Vulnerabilidade em biblioteca Go foi para produção" | Todo push/PR roda **SAST** (gosec / bandit), **SCA** (Trivy filesystem) e **Container Scan** (Trivy image). Qualquer CVE **CRITICAL** falha o job `security-scan`, e `docker-build-push` depende dele — a imagem nem chega a ser construída. |
-| "Recriar homologação leva dias" | `terraform apply` recria tudo do zero, com o state versionado em bucket GCS. |
+```
+services/                     5 microsserviços (Go e Python) + self-healer
+  auth-service/chaos.go       injeção de falha para a demonstração
+  */telemetry.go              bootstrap OpenTelemetry (serviços Go)
+terraform/                    infraestrutura (inalterada, + repositório do self-healer)
+gitops/
+  argocd-apps/                Applications do ArgoCD (serviços + obs-*)
+  observability/values/       values dos charts: kube-prometheus-stack, loki, otel-collector
+  observability/config/       dashboard JSON + alerting (rules, contact points, policies)
+  self-healer/                Deployment, RBAC mínimo e Service do self-healer
+  <serviço>/                  manifestos dos microsserviços (agora com OTEL_*)
+  platform/                   ConfigMaps compartilhados (incl. togglemaster-otel)
+scripts/
+  create-secrets.sh           Secrets das aplicações (Fase 3)
+  create-observability-secrets.sh  Secrets de New Relic / PagerDuty / Discord / Grafana
+  load-test.sh                gerador de tráfego dentro do cluster
+  chaos.sh                    liga/desliga a falha no auth-service
+  gen-dashboard.py            gera o JSON do dashboard
+docs/                         arquitetura, runbooks, roteiro do vídeo; docs/fase3/ = histórico
+```
 
 ## Passo a passo
 
-### 1. Pré-requisitos
+### 0. Base das Fases 1–3
+
+Infraestrutura e pipelines seguem o procedimento da Fase 3
+([docs/fase3/README-fase3.md](docs/fase3/README-fase3.md) e
+[docs/runbook-infra.md](docs/runbook-infra.md)). Mudanças desta fase:
+
+- O repositório agora é `mgm777/4-ciclo`. Em `terraform/terraform.tfvars`,
+  ajuste `github_repository = "mgm777/4-ciclo"` e rode `terraform apply`
+  — isso atualiza a federação OIDC do CI **e** cria o repositório
+  `self-healer` no Artifact Registry.
+- Configure no GitHub os mesmos secrets da Fase 3 (`GCP_WIF_PROVIDER`,
+  `GCP_CI_SERVICE_ACCOUNT`, `GCP_PROJECT_ID`, `GCP_REGION`) e as
+  *Workflow permissions* em **Read and write**.
+
+### 1. Contas externas (todas gratuitas)
+
+| Serviço | O que pegar |
+|---|---|
+| **New Relic** | *API Keys* → chave do tipo **INGEST - LICENSE** |
+| **PagerDuty** | Crie um *Service* "ToggleMaster" → *Integrations* → **Events API V2** → *Integration Key* |
+| **Discord** | Canal `#incidentes` → *Editar canal* → *Integrações* → *Webhooks* → **Copiar URL** |
+
+### 2. Secrets da observabilidade (nunca vão para o Git)
 
 ```bash
-gcloud auth login --update-adc
-gcloud config set project fiap-3-508723
+export NEW_RELIC_LICENSE_KEY=...
+export PAGERDUTY_INTEGRATION_KEY=...
+export DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+./scripts/create-observability-secrets.sh
 ```
 
-### 2. Bootstrap do backend remoto (uma única vez)
-
-```bash
-cd terraform/bootstrap
-terraform init
-terraform apply -var project_id=fiap-3-508723
-# anote o output bucket_name e confira terraform/backend.tf
-```
-
-### 3. Infraestrutura principal
-
-```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars   # ajuste project_id e github_repository
-terraform init
-terraform plan
-terraform apply
-```
-
-Provisiona VPC, GKE, 3 Cloud SQL, Memorystore, Firestore, Pub/Sub, 5
-repositórios no Artifact Registry, as service accounts com Workload Identity,
-a federação OIDC do GitHub Actions e instala o **ArgoCD** no cluster.
-
-### 4. Apontar o kubectl para o cluster
-
-```bash
-$(terraform output -raw kubectl_config_command)
-```
-
-### 5. Criar os Secrets das aplicações
-
-```bash
-MASTER_KEY=$(openssl rand -hex 32) ./scripts/create-secrets.sh
-```
-
-### 6. Registrar as Applications do ArgoCD
+### 3. Registrar as Applications no ArgoCD
 
 ```bash
 kubectl apply -f gitops/argocd-apps/
 kubectl get applications -n argocd
 ```
 
-### 7. Acessar a UI do ArgoCD
+Ordem (sync waves): `obs-kube-prometheus-stack` e `obs-loki` → `obs-otel-collector`
+→ `obs-grafana-config`. Os 5 serviços e o `self-healer` são publicados pelo CI
+no primeiro push (todos os serviços mudaram, então os 6 pipelines rodam e
+reescrevem as tags em `gitops/`).
+
+### 4. Acessar as ferramentas
 
 ```bash
-kubectl -n argocd port-forward svc/argocd-server 8080:443
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 -d; echo
-# usuário admin, senha acima — https://localhost:8080
+kubectl -n observability port-forward svc/grafana 3000:80          # Grafana (admin / senha do passo 2)
+kubectl -n argocd        port-forward svc/argocd-server 8080:443   # ArgoCD
 ```
 
-## Secrets necessários no GitHub
+- Dashboard: *Dashboards → ToggleMaster → ToggleMaster — Saúde do Ecossistema*
+- Logs: *Explore → Loki* → `{k8s_namespace_name="togglemaster"}`
+- APM: New Relic → *APM & Services* → `evaluation-service` → *Distributed tracing* / *Service map*
 
-`Settings → Secrets and variables → Actions`:
+### 5. Demonstração do incidente (a "prova real")
 
-| Secret | De onde vem |
-|---|---|
-| `GCP_WIF_PROVIDER` | `terraform output -raw github_secret_GCP_WIF_PROVIDER` |
-| `GCP_CI_SERVICE_ACCOUNT` | `terraform output -raw github_secret_GCP_CI_SERVICE_ACCOUNT` |
-| `GCP_PROJECT_ID` | `fiap-3-508723` |
-| `GCP_REGION` | `us-central1` |
+```bash
+./scripts/load-test.sh start          # tráfego contínuo
+./scripts/chaos.sh on 50              # auth-service passa a responder 500 em 50% das requisições
+kubectl -n togglemaster get pods -l app=auth-service -w    # em outro terminal
+kubectl -n observability logs -f deploy/self-healer       # em outro terminal
+```
 
-Não existe `GCP_SA_KEY`: a autenticação é federada por OIDC, sem chave estática.
+Em ~2 minutos: alerta **Firing** no Grafana → incidente no **PagerDuty** →
+mensagem no **Discord** → o self-healer executa o `rollout restart` → pods
+novos (sem a falha) → taxa de erro volta a 0 → alerta **Resolved** (o
+PagerDuty resolve o incidente e o Discord recebe o ✅).
 
-Confirme também que *Settings → Actions → General → Workflow permissions* está
-em **Read and write permissions** — o job `gitops-update` precisa commitar.
+## Decisões e trade-offs da Fase 4
 
-## Pipeline de CI/CD
-
-Cada serviço tem seu workflow (`.github/workflows/<serviço>.yml`), disparado só
-quando `services/<serviço>/**` muda, chamando um workflow reutilizável
-(`reusable-go-ci.yml` ou `reusable-python-ci.yml`):
-
-1. **Build & Unit Test** — compila e roda os testes.
-2. **Linter/Static Analysis** — `golangci-lint` / `flake8`.
-3. **Security Scan (SAST & SCA)** — `gosec`/`bandit` + `trivy fs`.
-   **Regra de bloqueio:** CVE `CRITICAL` falha o pipeline; `HIGH` é reportado no log.
-4. **Docker Build & Push** — só em push na `main`: build, `trivy image`
-   (bloqueia em CRITICAL), autentica por OIDC e publica no Artifact Registry
-   com a tag `v1.0.0-<commit-sha>`.
-5. **GitOps update** — reescreve a tag em `gitops/<serviço>/deployment.yaml` e
-   commita. O ArgoCD detecta e sincroniza sozinho.
-
-### Como demonstrar o bloqueio de segurança
-
-Adicione uma dependência com CVE crítica conhecida em um serviço Python
-(ex.: `PyYAML==5.3.1`, CVE-2020-14343) e abra um PR: o job `security-scan`
-falha no Trivy e o `docker-build-push` nem inicia. Reverta o commit e mostre o
-pipeline verde.
-
-## Decisões e trade-offs
-
-- **Cluster GKE zonal** em vez de regional: cria mais rápido e custa ~1/3 —
-  aceitável para homologação, seria regional em produção.
-- **Cloud SQL `db-f1-micro`, sem HA e sem backup**: decisão de custo do ambiente
-  de estudo.
-- **Memorystore tier BASIC** (sem réplica): mesmo motivo.
-- **Trivy + gosec/bandit em vez de SonarCloud**: sem dependência de conta
-  externa, roda inteiramente dentro do GitHub Actions.
-- **Bloqueio apenas em CRITICAL**: o enunciado pede exatamente isso; HIGH fica
-  visível no log sem travar o fluxo de entrega.
-- **Workload Identity Federation em vez de chave de service account**: elimina
-  o segredo de longa duração que seria o alvo óbvio em um vazamento do repo.
-- **Namespace e KSAs criados pelo Terraform**, não pelo ArgoCD: as anotações de
-  Workload Identity precisam existir antes do primeiro sync dos Deployments.
+- **OTel Collector como DaemonSet** (e não Deployment): um único componente
+  coleta os logs de todos os contêineres do nó (filelog) e recebe o OTLP dos
+  pods do mesmo nó (`internalTrafficPolicy: Local`), o que mantém o
+  `k8sattributes` exato e evita tráfego entre nós.
+- **Métricas das apps por remote write**, não por scrape: o Collector é o único
+  caminho da telemetria das aplicações, como pede o enunciado.
+- **Logs pelo stdout + filelog** em vez do exportador de logs OTLP no SDK:
+  pega também os logs de contêineres não instrumentados (ArgoCD, kube-system…)
+  e não duplica. O `trace_id` vai na linha de log para a correlação.
+- **Gunicorn com 1 processo e threads**: com vários workers forkados, cada
+  processo exportaria séries de métrica idênticas e os contadores colidiriam
+  no Prometheus. Por isso o pool do Postgres passou a ser o `ThreadedConnectionPool`.
+- **Alerta no Grafana (não no APM)**: a regra fica versionada no Git junto com
+  o restante e não depende da conta comercial; o APM fica com o que ele faz
+  melhor (traces e Service Map).
+- **Self-healer dentro do cluster** em vez de GitHub Action via webhook: o CI
+  continua **sem credencial do Kubernetes** (princípio da Fase 3), a reação
+  leva segundos (sem fila de runner) e o RBAC é mínimo (`get`/`patch` em
+  Deployments de um namespace). Guarda-corpos: allowlist, cooldown de 5 min e
+  `DRY_RUN`.
+- **Alertmanager desligado**: o roteamento é todo do Grafana Alerting, para não
+  ter dois sistemas de notificação concorrentes.

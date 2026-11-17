@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
 os.environ.setdefault("AUTH_SERVICE_URL", "http://localhost:8001")
 
-with patch("psycopg2.pool.SimpleConnectionPool", return_value=MagicMock()):
+with patch("psycopg2.pool.ThreadedConnectionPool", return_value=MagicMock()):
     import app as targeting_app
 
 

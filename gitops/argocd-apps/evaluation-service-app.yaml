@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/mgm777/3-CICLO-POS-FIAP.git
+    repoURL: https://github.com/mgm777/4-ciclo.git
     targetRevision: main
     path: gitops/evaluation-service
   destination:

@@ -107,7 +107,8 @@ module "artifact_registry" {
 
   project_id = var.project_id
   region     = var.region
-  services   = local.services
+  # Fase 4: + repositorio do self-healer (automacao de resposta a incidentes).
+  services = concat(local.services, ["self-healer"])
 
   depends_on = [module.project_services]
 }

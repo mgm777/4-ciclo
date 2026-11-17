@@ -1,0 +1,137 @@
+# OpenTelemetry Collector — peça central da telemetria do ToggleMaster.
+#
+#   apps (SDK OTel, OTLP/HTTP) ──┐
+#                                ├─► [Collector DaemonSet] ─┬─ métricas ─► Prometheus (remote write)
+#   stdout de todos os pods ─────┘    (filelog receiver)    ├─ logs ─────► Loki (OTLP nativo)
+#                                                           ├─ traces ───► New Relic (OTLP)
+#                                                           └─ logs app ─► New Relic (logs in context)
+#
+# DaemonSet: um Collector por nó. Ele lê os logs dos contêineres do próprio nó
+# (/var/log/pods) e recebe o OTLP dos pods do mesmo nó (Service com
+# internalTrafficPolicy: Local), o que mantém o k8sattributes correto e evita
+# tráfego entre nós.
+fullnameOverride: otel-collector
+mode: daemonset
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+command:
+  name: otelcol-contrib
+
+presets:
+  # filelog receiver em /var/log/pods/* (todos os contêineres do cluster)
+  logsCollection:
+    enabled: true
+    includeCollectorLogs: false
+    storeCheckpoints: true
+  # Enriquecimento com metadados do Kubernetes (pod, namespace, deployment, nó)
+  kubernetesAttributes:
+    enabled: true
+
+service:
+  enabled: true
+  internalTrafficPolicy: Local
+
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
+
+extraEnvs:
+  - name: NEW_RELIC_LICENSE_KEY
+    valueFrom:
+      secretKeyRef:
+        name: newrelic-license
+        key: license-key
+  - name: K8S_CLUSTER_NAME
+    value: togglemaster-gke
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+config:
+  receivers:
+    # Receivers padrão do chart que não usamos
+    jaeger: null
+    zipkin: null
+    prometheus: null
+
+  processors:
+    memory_limiter:
+      check_interval: 5s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    batch:
+      send_batch_size: 1024
+      timeout: 5s
+    resource/cluster:
+      attributes:
+        - key: k8s.cluster.name
+          value: ${env:K8S_CLUSTER_NAME}
+          action: upsert
+    # Logs coletados do stdout não têm service.name: usamos o nome do
+    # Deployment (ou do contêiner). É o label service_name no Loki e o que
+    # liga o log à entidade APM no New Relic.
+    transform/log-service-name:
+      error_mode: ignore
+      log_statements:
+        - context: resource
+          statements:
+            - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["service.name"] == nil and attributes["k8s.deployment.name"] != nil
+            - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+    # Para o New Relic só vão os logs da aplicação (economia da cota gratuita);
+    # o Loki recebe os logs de todo o cluster.
+    filter/app-logs-only:
+      error_mode: ignore
+      logs:
+        log_record:
+          - 'resource.attributes["k8s.namespace.name"] != "togglemaster" and resource.attributes["k8s.deployment.name"] != "self-healer"'
+
+  exporters:
+    debug:
+      verbosity: basic
+    # Métricas → Prometheus (receiver de remote write habilitado no kube-prometheus-stack)
+    prometheusremotewrite:
+      endpoint: http://kps-prometheus.observability.svc.cluster.local:9090/api/v1/write
+      resource_to_telemetry_conversion:
+        enabled: false
+      target_info:
+        enabled: true
+    # Logs → Loki (endpoint OTLP nativo do Loki 3.x)
+    otlphttp/loki:
+      endpoint: http://loki.observability.svc.cluster.local:3100/otlp
+    # Traces e logs da aplicação → New Relic (APM)
+    otlphttp/newrelic:
+      endpoint: https://otlp.nr-data.net
+      compression: gzip
+      headers:
+        api-key: ${env:NEW_RELIC_LICENSE_KEY}
+
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, resource/cluster, batch]
+        exporters: [otlphttp/newrelic]
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, resource/cluster, batch]
+        exporters: [prometheusremotewrite]
+      logs:
+        receivers: [otlp, filelog]
+        processors: [memory_limiter, k8sattributes, transform/log-service-name, resource/cluster, batch]
+        exporters: [otlphttp/loki]
+      logs/newrelic:
+        receivers: [otlp, filelog]
+        processors: [memory_limiter, k8sattributes, transform/log-service-name, filter/app-logs-only, resource/cluster, batch]
+        exporters: [otlphttp/newrelic]

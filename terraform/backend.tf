@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
-    bucket = "fiap-3-508723-tfstate"
-    prefix = "fase3/togglemaster"
+    bucket = "fiap-4-514223-tfstate"
+    prefix = "fase4/togglemaster"
   }
 }
