@@ -63,6 +63,19 @@ actions_counter = meter.create_counter(
     description="Decisões do self-healer por deployment e resultado",
 )
 
+
+def init_counters(counter=actions_counter):
+    """Cria a série "healed" em 0 para cada deployment permitido.
+
+    Sem isso, a primeira remediação faz a série nascer já valendo 1 e o
+    increase() do Prometheus devolve 0 (o painel "Self-healing executados"
+    não sobe)."""
+    for deployment in sorted(ALLOWED_DEPLOYMENTS):
+        counter.add(0, {"deployment": deployment, "result": "healed"})
+
+
+init_counters()
+
 app = Flask(__name__)
 
 _last_action = {}
