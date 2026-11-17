@@ -19,6 +19,13 @@ resource "helm_release" "argocd" {
     value = "ClusterIP"
   }
 
+  # Acesso só por kubectl port-forward (Service ClusterIP): HTTP simples, sem
+  # o certificado autoassinado que o navegador bloqueia.
+  set {
+    name  = "configs.params.server\\.insecure"
+    value = "true"
+  }
+
   timeout = 900
 }
 
